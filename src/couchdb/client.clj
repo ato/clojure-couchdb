@@ -3,7 +3,8 @@
   (:use [clojure.contrib.java-utils :only [as-str]]
         [clojure.contrib.json.read :only [read-json *json-keyword-keys*]]
         [clojure.contrib.json.write :only [json-str]]
-        [clojure.http.client :only [request url-encode]]))
+        [clojure.http.client :only [request url-encode]]
+        [com.reasonr.scriptjure :only [js]]))
 
 (def *server* "http://localhost:5984/")
 
@@ -247,6 +248,33 @@
           {"Content-Type" "application/json"}
           {}
           (json-str view-map))))
+
+(defn view-put [database design-doc view-name code]
+  (let [doc-id (str "_design/" design-doc)
+        old (document-get database doc-id)
+        new (merge {:language "javascript"
+                    :_id doc-id}
+                  old
+                  {:views (assoc (:views old)
+                            view-name code)})]
+    (if old
+      (document-update database doc-id new)
+      (document-create database new))
+    new))
+
+(defmacro defview
+  "Creates or updates a view automatically translating Clojure code to
+  javascript.  Example:
+
+  (defview :users :all [doc]
+    (if (== doc.type \"users\")
+      (emit nil doc)))
+  "
+  [database design-doc view-name params & body]
+  (when-not *compile-files*
+    (let [code (eval `(js (fn ~params ~@body)))]
+     `(view-put ~database ~(name design-doc) ~view-name
+                   {:map ~code}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;        Attachments          ;;
